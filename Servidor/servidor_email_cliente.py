@@ -13,42 +13,41 @@ while True:
     cli, addr = s.accept()
 
     while True:
-        message = b''
-        while not (b'\n' in message):
-            pedaco = cli.recv(1024)
-            if pedaco == b'':
-                break
-            message += pedaco
+        message = cli.recv(1024).decode()
+            
 
         print(message)
-        vectorMessage = message.split(" ")
+        vectorMessage = message.split(' ')
 
-        if(vectorMessage[0] == "HELO"):
-        	hello = "250 Hello " + vectorMessage[1] + ", pleased to meet you"
-        	cli.send(hello)
-        elif(vectorMessage[0] == "MAIL"):
+        if(vectorMessage[0] == 'HELO'):
+        	hello = '250 Hello ' + vectorMessage[1] + ', pleased to meet you'
+        	cli.send(hello.encode())
+
+        elif(vectorMessage[0] == 'MAIL'):
         	email= vectorMessage[2]
-        	email = email.replace("<","")
-        	email = email.replace(">","")
-        	emailFrom = "250 "+ emailFrom +" ... Sender ok"	
-        	cli.send(emailFrom)
-        elif(vectorMessage[0] == "RCPT"):
+        	email = email.replace('<','')
+        	email = email.replace('>','')
+        	emailFrom = '250 '+ email +' ... Sender ok'	
+        	cli.send(emailFrom.encode())
+
+        elif(vectorMessage[0] == 'RCPT'):
         	email= vectorMessage[2]
-        	email = email.replace("<","")
-        	email = email.replace(">","")
-        	emailFrom = "250 "+ emailFrom +" ... Recipient ok"	
-        	cli.send(emailFrom)
-        elif(vectorMessage[0] == "DATA"):
-        	response = "354 Enter mail, end with ”.” on a line by itself"
-        	cli.send(response)
-        	emailBody = ""
-        	while not (b'.' in emailBody):
-        		emailBody += cli.recv(64)
-        	print(emailBody)
-        	confirmData = " 250 Message accepted for delivery"
+        	email = email.replace('<','')
+        	email = email.replace('>','')
+        	emailTo = '250 '+ email +' ... Recipient ok'	
+        	cli.send(emailTo.encode())
+
+        elif(vectorMessage[0] == 'DATA'):
+        	response = '354 Enter mail, end with ”.” on a line by itself'
+        	cli.send(response.encode())
+        	#emailBody = b''
+        	emailBody = cli.recv(64)
+        	confirmData = '250 Message accepted for delivery'
+        	cli.send(confirmData.encode())
+
         else:
-        	closeConnection = " 221 hamburger.edu closing connection"
-        	cli.send(closeConnection)
+        	closeConnection = '221 hamburger.edu closing connection'
+        	cli.send(closeConnection.encode())
 
     cli.close()
 
