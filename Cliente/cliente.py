@@ -10,6 +10,12 @@ ip_email_server_cli = input('Client\'s  email server IP: ')
 ip_email_server_rec = input('Recipient\'s email server IP: ')
 ip_recipient = input('Recipient\'s IP: ')
 
+sentence = ''
+data = input('Write the email body:')
+while data != '.':
+	sentence += data
+	data = input()
+sentence += '.'
 
 cli_socket.connect((ip_email_server_cli, 2525))
 
@@ -49,11 +55,6 @@ if response[0:3] == '250':
 					print(response)
 
 					if response[0:3] == '354':
-						sentence = ''
-						data = input()
-						while data != '.':
-							sentence += data
-							data = input()
 						cli_socket.send(sentence.encode())
 						response = cli_socket.recv(512).decode()
 						print(response)
