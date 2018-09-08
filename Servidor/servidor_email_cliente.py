@@ -37,6 +37,16 @@ while True:
         	emailTo = '250 '+ email +' ... Recipient ok'	
         	cli.send(emailTo.encode())
 
+        elif(vectorMessage[0] == 'ESIP'):
+        	emailServerIP= vectorMessage[1]
+        	messageEmailServer = '250 '+ emailServerIP +' ... IP of the mail server saved'	
+        	cli.send(messageEmailServer.encode())
+
+        elif(vectorMessage[0] == 'RCIP'):
+        	recipientIP = vectorMessage[1]
+        	messageRecipient = '250 '+ recipientIP +' ... IP of the recipient saved'	
+        	cli.send(messageRecipient.encode())
+
         elif(vectorMessage[0] == 'DATA'):
         	response = '354 Enter mail, end with ”.” on a line by itself'
         	cli.send(response.encode())
