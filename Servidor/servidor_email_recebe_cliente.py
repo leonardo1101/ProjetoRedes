@@ -15,7 +15,6 @@ while True:
 	email = ''
 	emailRC = ''
 	emailServerIP = ''
-	recipientIP = ''
 	emailBody = b''
 
     while True:
@@ -49,11 +48,6 @@ while True:
         	messageEmailServer = '250 '+ emailServerIP +' ... IP of the mail server saved'	
         	cli.send(messageEmailServer.encode())
 
-        elif(vectorMessage[0] == 'RCIP'):
-        	recipientIP = vectorMessage[1]
-        	messageRecipient = '250 '+ recipientIP +' ... IP of the recipient saved'	
-        	cli.send(messageRecipient.encode())
-
         elif(vectorMessage[0] == 'DATA'):
         	response = '354 Enter mail, end with ”.” on a line by itself'
         	cli.send(response.encode())
@@ -73,7 +67,6 @@ while True:
 			    'emailFrom': email,
 			    'emailTO': emailRC,
 			    'emailServerIP' : emailServerIP ,
-			    'recipientIP' : recipientIP,
 			    'emailBody' : emailBody.decode()
 			})
 		    with open('emailServer.json', 'w') as outfile:
