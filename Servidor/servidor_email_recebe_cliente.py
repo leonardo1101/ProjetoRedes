@@ -8,18 +8,18 @@ s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(('', 2525))
 s.listen(1)
 
+# Arquivo referente ao Servidor de e-mail que receberá o e-mail do Cliente ou de outro Servido de e-mail
+
 while True:
     cli, addr = s.accept()
-
-	mailServer = ''
-	email = ''
-	emailRC = ''
-	emailServerIP = ''
-	emailBody = b''
+    mailServer = ''
+    email = ''
+    emailRC = ''
+    emailServerIP = ''
+    emailBody = b''
 
     while True:
         message = cli.recv(1024).decode()
-            
 
         print(message)
         vectorMessage = message.split(' ')
@@ -56,24 +56,24 @@ while True:
         	confirmData = '250 Message accepted for delivery'
         	cli.send(confirmData.encode())
 
+        # Escreve em um arquivo json as informações referentes ao e-mail.
+        
         else:
-        	closeConnection = '221 hamburger.edu closing connection'
-        	cli.send(closeConnection.encode())
-        	
-        	data = {}
-			data ['emails'] = []
-			data['emails'].append({  
+            closeConnection = '221 hamburger.edu closing connection'
+            cli.send(closeConnection.encode())
+            data = {}
+            data ['emails'] = []
+            data['emails'].append({  
 			    'serverName': mailServer,
 			    'emailFrom': email,
 			    'emailTO': emailRC,
 			    'emailServerIP' : emailServerIP ,
 			    'emailBody' : emailBody.decode()
 			})
-		    with open('emailServer.json', 'w') as outfile:
-		    	json.dump(data, outfile)
-        	break
-
-	cli.close()
+            with open('emailServe.json', 'w') as outfile:
+                json.dump(data, outfile)
+            break
+    cli.close()
     
 
 
