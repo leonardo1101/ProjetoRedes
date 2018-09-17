@@ -59,7 +59,7 @@ while True:
         # Escreve em um arquivo json as informações referentes ao e-mail.
         
         else:
-            closeConnection = '221 hamburger.edu closing connection'
+            closeConnection = '221 ufscar.edu closing connection'
             cli.send(closeConnection.encode())
             data = {}
             data ['emails'] = []
@@ -70,7 +70,7 @@ while True:
 			    'emailServerIP' : emailServerIP ,
 			    'emailBody' : emailBody.decode()
 			})
-            with open('emailServe.json', 'w') as outfile:
+            with open('emailServerR.json', 'w') as outfile:
                 json.dump(data, outfile)
             break
     cli.close()

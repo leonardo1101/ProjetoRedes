@@ -25,7 +25,7 @@ body += '.'
 
 cli_socket.connect((ip_email_server_cli, 2525))
 
-sentence = 'HELO renata.ufscar'
+sentence = 'HELO email.ufscar'
 
 cli_socket.send(sentence.encode())
 response = cli_socket.recv(512).decode()

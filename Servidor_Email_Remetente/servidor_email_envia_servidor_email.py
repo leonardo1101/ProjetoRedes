@@ -13,7 +13,7 @@ while True:
 
     # Lê o arquivo Json e envia as informações para outro Servidor de e-mail
     
-    with open('emailServer.json') as json_file:  
+    with open('emailServerR.json') as json_file:  
         data = json.load(json_file)
         for e in data ['emails']:
             try:
@@ -70,7 +70,7 @@ while True:
                                         cli_socket.send(sentence.encode())
                                         response = cli_socket.recv(512).decode()
                                         print(response)
-                with open('emailServer.json', 'w') as outfile:
+                with open('emailServerR.json', 'w') as outfile:
                     json.dump(data, outfile)
                 break
             except:
