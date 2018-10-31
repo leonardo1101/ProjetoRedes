@@ -49,7 +49,7 @@ def set_checksum(segmento):
     return checksum
 
 def create_synack(src_port, dst_port,seq_n, ack_no, syn_flag):
-    return struct.pack('!HHIIHHHH', src_port, dst_port, seq_n ,ack_no, (5<<12)|FLAGS_ACK|syn_flag,1024, 0, 0)
+    return struct.pack('!HHIIHHHH', src_port, dst_port, seq_n ,ack_no, (5<<12)|syn_flag,1024, 0, 0)
 
 def create_checksum(segmento, end_remt, end_dest):
     addr = str2addr(end_remt) + str2addr(end_dest) + struct.pack('!HH', 0x0006, len(segmento))
@@ -71,11 +71,13 @@ def extract_addrs_segment(packet):
     return  end_remt,end_dest,segmento
 
 def raw_recv(fd):
+    global SendBase
     packet = fd.recv(12000)
     end_remt, end_dest, segmento = extract_addrs_segment(packet)
     port_remt, port_dest, seq_n, ack_n, flags, window_size, checksum, urg_ptr = struct.unpack('!HHIIHHHH', segmento[:20])
     
     if port_remt == port_cliente :
+
         if port_dest != port_servidor:
             return
         
@@ -83,18 +85,18 @@ def raw_recv(fd):
             print('%s:%d -> %s:%d  (seq=%d) Segmento SYN - conexão estabelecida' % (end_remt,port_remt,end_dest,port_dest,seq_n))
             fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_SYN),end_remt, end_dest),(end_remt,port_remt))
             return
-
         if (flags & FLAGS_ACK) == FLAGS_ACK:
             print('%s:%d -> %s:%d  (ack_num=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,ack_n))
-            SendBase = 0 #ERRADO ISSO APAGAR
-            if ack_n > SendBase:
-                SendBase = ack_n
-            if timer == None:
-                with timeout(1):
-                    print("inicio Timer")
-                    time.sleep(10)
+            fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_ACK),end_remt, end_dest),(end_remt,port_remt))
+            # if ack_n > SendBase:
+            #     SendBase = ack_n
+            # if timer == None:
+            #     with timeout(1000):
+            #         print("inicio Timer")
+            #         time.sleep(10)
 
 			# fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_SYN),end_remt, end_dest),(end_remt,port_remt))
+            print("aaaaa")
             return
         
         if (flags & FLAGS_FIN) == FLAGS_FIN:
@@ -116,9 +118,9 @@ def timeout (time):
 	finally:
 		signal.signal(signal.SIGALRM, signal.SIG_IGN)
 
+
 def raise_timeout(signum, frame):
 	raise TimeoutError
-
 
 fd = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
 loop = asyncio.get_event_loop()

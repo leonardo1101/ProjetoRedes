@@ -21,6 +21,9 @@ end = '127.0.0.1'
 port_servidor = 7080
 port_cliente = 7500
 
+g_ack_n = 0
+g_seq_n = 0
+
 def addr2str(addr):
     return '%d.%d.%d.%d' % tuple(int(x) for x in addr)
 
@@ -41,7 +44,7 @@ def set_checksum(segmento):
     return checksum
 
 def create_synack(src_port, dst_port,seq_n, ack_no, flag):
-    return struct.pack('!HHIIHHHH', src_port, dst_port, seq_n ,ack_no, (5<<12)|FLAGS_ACK|flag,1024, 0, 0)
+    return struct.pack('!HHIIHHHH', src_port, dst_port, seq_n ,ack_no, (5<<12)|flag,1024, 0, 0)
 
 def create_checksum(segmento, end_remt, end_dest):
     addr = str2addr(end_remt) + str2addr(end_dest) + struct.pack('!HH', 0x0006, len(segmento))
@@ -60,6 +63,8 @@ def extract_addrs_segment(packet):
     return  end_remt,end_dest,segmento
 
 def raw_recv(fd):
+    global g_ack_n
+    global g_seq_n
     pacote = fd.recv(12000)
     end_remt, end_dest, segmento = extract_addrs_segment(pacote)
     port_remt, port_dest, seq_n, ack_n, flags, window_size, checksum, urg_ptr = struct.unpack('!HHIIHHHH', segmento[:20])
@@ -71,13 +76,19 @@ def raw_recv(fd):
         
         if (flags & FLAGS_SYN) == FLAGS_SYN:
             print('%s:%d -> %s:%d  (seq=%d) Segmento SYN reconhecido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
-            complete_ack = create_synack(port_cliente,port_servidor,ack_n + 1,seq_n + 1, 0)
+            complete_ack = create_synack(port_cliente,port_servidor,ack_n + 1,seq_n + 1, FLAGS_ACK)
             a = create_checksum(complete_ack,end,end)
             fd.sendto(a,(end,port_cliente))
+            g_ack_n = ack_n
+            g_seq_n = seq_n
             return "SYN recebido"
         
             #fd.sendto(create_checksum(create_synack(port_remt, port_dest, seq_n + 1, ack_n + 1 ,0),end_remt, end_dest),(end_remt,port_remt))
         
+        if (flags & FLAGS_ACK) == FLAGS_ACK:
+            print('%s:%d -> %s:%d  (ack_num=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,ack_n))
+            return
+
         if (flags & FLAGS_FIN) == FLAGS_FIN:
             print('%s:%d -> %s:%d  (seq=%d) Segmento FIN reconhecido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
             return "FIN recebido"
@@ -101,8 +112,20 @@ def encerrar_conexao(fd):
     #Esperar30 segundos
     print("Conexao Encerrada")
 
+
+def enviar_pacote(fd):
+    fin = create_synack(port_cliente,port_servidor,g_ack_n,g_seq_n + 1,FLAGS_ACK)
+    a = create_checksum(fin,end,end)
+    fd.sendto(a,(end,port_cliente))
+    print("Pacote enviado")
+
+
 fd = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
 estabelecer_conexao(fd)
+enviar_pacote(fd)
+loop = asyncio.get_event_loop()
+loop.add_reader(fd, raw_recv, fd)
+loop.run_forever()
 encerrar_conexao(fd)
     
     
