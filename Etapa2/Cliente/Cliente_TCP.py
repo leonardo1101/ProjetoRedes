@@ -9,6 +9,9 @@
 
 import asyncio
 import socket
+import os
+import sys
+import queue
 import struct
 
 FLAGS_FIN = 1
@@ -21,8 +24,29 @@ end = '127.0.0.1'
 port_servidor = 7080
 port_cliente = 7500
 
-g_ack_n = 0
-g_seq_n = 0
+dados = 32 * b"Who are you ?"
+tamanho = 16
+
+contador = 0
+
+comecaEnviarPacote = False
+
+connectionNumber = (end,port_cliente,end,port_servidor)
+
+class Conexao:
+    def __init__(self, id_conexao):
+        self.id_conexao = id_conexao
+        self.seq_no = 0
+        self.ack_no = 0
+        
+    def setSeq(self,seq):
+        self.seq_no = seq
+    
+    def setACK(self,ack):
+        self.ack_no = ack
+
+conexao = Conexao(connectionNumber)
+
 
 def addr2str(addr):
     return '%d.%d.%d.%d' % tuple(int(x) for x in addr)
@@ -63,33 +87,21 @@ def extract_addrs_segment(packet):
     return  end_remt,end_dest,segmento
 
 def raw_recv(fd):
-    global g_ack_n
-    global g_seq_n
     pacote = fd.recv(12000)
     end_remt, end_dest, segmento = extract_addrs_segment(pacote)
     port_remt, port_dest, seq_n, ack_n, flags, window_size, checksum, urg_ptr = struct.unpack('!HHIIHHHH', segmento[:20])
-    
+    flags = flags & 511
     
     if port_remt == port_servidor :
         if port_dest != port_cliente:
             return
         
-        if (flags & FLAGS_SYN) == FLAGS_SYN:
+        if flags == FLAGS_SYN:
             print('%s:%d -> %s:%d  (seq=%d) Segmento SYN reconhecido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
-            complete_ack = create_synack(port_cliente,port_servidor,ack_n + 1,seq_n + 1, FLAGS_ACK)
-            a = create_checksum(complete_ack,end,end)
-            fd.sendto(a,(end,port_cliente))
-            g_ack_n = ack_n
-            g_seq_n = seq_n
+            conexao.setSeq(ack_n)
+            conexao.setACK(seq_n + 1)
             return "SYN recebido"
-        
-            #fd.sendto(create_checksum(create_synack(port_remt, port_dest, seq_n + 1, ack_n + 1 ,0),end_remt, end_dest),(end_remt,port_remt))
-        
-        if (flags & FLAGS_ACK) == FLAGS_ACK:
-            print('%s:%d -> %s:%d  (ack_num=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,ack_n))
-            return
-
-        if (flags & FLAGS_FIN) == FLAGS_FIN:
+        elif flags == FLAGS_FIN:
             print('%s:%d -> %s:%d  (seq=%d) Segmento FIN reconhecido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
             return "FIN recebido"
            
@@ -102,6 +114,7 @@ def estabelecer_conexao(fd):
         recebido = raw_recv(fd)
     print("Conexao Estabelecida")
     
+ 
 def encerrar_conexao(fd):
     fin = create_synack(port_cliente,port_servidor,0,0, FLAGS_FIN)
     a = create_checksum(fin,end,end)
@@ -112,20 +125,63 @@ def encerrar_conexao(fd):
     #Esperar30 segundos
     print("Conexao Encerrada")
 
+def enviar_pacote(data):
+    
+    send_base = conexao.seq_no
+    fd.settimeout(0.1)
+    pacotes_enviados = 0
+    contador = 0
+    while(data != b""):
+        contador = contador + 1
+                        
+        if(contador > 50):
+            contador = 0
+            conexao.seq_no = send_base
+            pacotes_enviados = 0
 
-def enviar_pacote(fd):
-    fin = create_synack(port_cliente,port_servidor,g_ack_n,g_seq_n + 1,FLAGS_ACK)
-    a = create_checksum(fin,end,end)
-    fd.sendto(a,(end,port_cliente))
-    print("Pacote enviado")
+        
+        if(pacotes_enviados < 5):
+            payload = data[conexao.seq_no:conexao.seq_no+tamanho]
+            segment = struct.pack('!HHIIHHHH', port_cliente , port_servidor, conexao.seq_no,
+                                conexao.ack_no, (5<<12)|FLAGS_ACK,
+                                1024, 0, 0) + payload
+            
+            print('%s:%d -> %s:%d  (seq=%d) Segmento ACK enviado' % (end,port_cliente,end,port_servidor,conexao.seq_no))
+            conexao.seq_no = (conexao.seq_no + len(payload)) & 0xffffffff
+            segment = create_checksum(segment, end, end)
+            fd.sendto(segment,(end,port_cliente))
+            pacotes_enviados = pacotes_enviados + 1
+            
+        try:
+            pacote = fd.recv(12000)
+            end_remt, end_dest, segmento = extract_addrs_segment(pacote)
+            port_remt, port_dest, seq_n, ack_n, flags, window_size, checksum, urg_ptr = struct.unpack('!HHIIHHHH', segmento[:20])
+            flags = flags & 511
+            if port_remt == port_servidor and port_dest == port_cliente :
+                if flags == FLAGS_ACK :
+                    print('%s:%d -> %s:%d  (ack=%d) Segmento ACK chegou' % (end,port_cliente,end,port_servidor,ack_n-1))
+                    if(ack_n > send_base):
+                        print('Ack %d e send_base %d' %(ack_n,send_base))
+                        if(ack_n == send_base + tamanho):
+                            send_base =ack_n
+                            pacotes_enviados= pacotes_enviados - 1
+                        else:
+                            conexao.seq_no = send_base  
+                    
+                    
+        except:
+            pass
+
+    
+        
+        
+        
 
 
 fd = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+
 estabelecer_conexao(fd)
-enviar_pacote(fd)
-loop = asyncio.get_event_loop()
-loop.add_reader(fd, raw_recv, fd)
-loop.run_forever()
+enviar_pacote(dados)
 encerrar_conexao(fd)
     
     

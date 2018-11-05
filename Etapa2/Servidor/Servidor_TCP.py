@@ -13,6 +13,7 @@ import struct
 import signal
 from contextlib import contextmanager
 import time
+import os
 
 FLAGS_FIN = 1
 FLAGS_SYN = 2
@@ -25,6 +26,17 @@ port_servidor = 7080
 port_cliente = 7500
 InicialSeqNumber = 0
 timer = None
+tamanho = 16
+
+
+class Conexao:
+    def __init__(self, id_conexao, seq_no, ack_no):
+        self.id_conexao = id_conexao
+        self.seq_no = seq_no
+        self.ack_no = ack_no
+        self.data = b""
+        
+conexoes = {}
 
 NextSeqNum = InicialSeqNumber
 SendBase = InicialSeqNumber
@@ -48,8 +60,8 @@ def set_checksum(segmento):
     
     return checksum
 
-def create_synack(src_port, dst_port,seq_n, ack_no, syn_flag):
-    return struct.pack('!HHIIHHHH', src_port, dst_port, seq_n ,ack_no, (5<<12)|syn_flag,1024, 0, 0)
+def create_synack(src_port, dst_port,seq_n, ack_no, flag):
+    return struct.pack('!HHIIHHHH', src_port, dst_port, seq_n ,ack_no, (5<<12)|flag,1024, 0, 0)
 
 def create_checksum(segmento, end_remt, end_dest):
     addr = str2addr(end_remt) + str2addr(end_dest) + struct.pack('!HH', 0x0006, len(segmento))
@@ -71,56 +83,46 @@ def extract_addrs_segment(packet):
     return  end_remt,end_dest,segmento
 
 def raw_recv(fd):
-    global SendBase
     packet = fd.recv(12000)
     end_remt, end_dest, segmento = extract_addrs_segment(packet)
     port_remt, port_dest, seq_n, ack_n, flags, window_size, checksum, urg_ptr = struct.unpack('!HHIIHHHH', segmento[:20])
+    flags = flags & 511
     
     if port_remt == port_cliente :
 
         if port_dest != port_servidor:
             return
         
-        if (flags & FLAGS_SYN) == FLAGS_SYN:
+        connectionNumber = (end_remt,port_remt,end_dest,port_dest)
+        
+        if flags == FLAGS_SYN :
+            
             print('%s:%d -> %s:%d  (seq=%d) Segmento SYN - conexão estabelecida' % (end_remt,port_remt,end_dest,port_dest,seq_n))
-            fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_SYN),end_remt, end_dest),(end_remt,port_remt))
-            return
-        if (flags & FLAGS_ACK) == FLAGS_ACK:
-            print('%s:%d -> %s:%d  (ack_num=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,ack_n))
-            fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_ACK),end_remt, end_dest),(end_remt,port_remt))
-            # if ack_n > SendBase:
-            #     SendBase = ack_n
-            # if timer == None:
-            #     with timeout(1000):
-            #         print("inicio Timer")
-            #         time.sleep(10)
-
-			# fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_SYN),end_remt, end_dest),(end_remt,port_remt))
-            print("aaaaa")
-            return
+            
+            conexao = Conexao(id_conexao=connectionNumber,seq_no = 0 , ack_no=seq_n + 1)
+            conexoes[connectionNumber] = conexao
+            
+            fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, conexao.seq_no, conexao.ack_no, FLAGS_SYN),end_remt, end_dest),(end_remt,port_remt))
+            
+        elif connectionNumber in conexoes:
+            conexao = conexoes[connectionNumber]
+            if flags == FLAGS_ACK : 
+                
+                print('%s:%d -> %s:%d  (seq=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
+                conexao.data += segmento[4*(flags>>12):]
+                if(50<seq_n and seq_n < 80):
+                    fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, conexao.seq_no, seq_n + tamanho, FLAGS_ACK),end_remt, end_dest),(end_remt,port_remt))
+                
+                conexao.seq_no += 1
+            
+            elif flags == FLAGS_FIN:
+                print('%s:%d -> %s:%d  (seq=%d) Segmento FIN - conexão encerrada' % (end_remt,port_remt,end_dest,port_dest,seq_n))
+                fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_FIN),end_remt, end_dest),(end_remt,port_remt))
         
-        if (flags & FLAGS_FIN) == FLAGS_FIN:
-            print('%s:%d -> %s:%d  (seq=%d) Segmento FIN - conexão encerrada' % (end_remt,port_remt,end_dest,port_dest,seq_n))
-        
-            fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_FIN),end_remt, end_dest),(end_remt,port_remt))
+        else:
+            print("FIM")
             return
-        
 
-@contextmanager
-def timeout (time):
-	signal.signal(signal.SIGALRM, raise_timeout)
-	signal.alarm(time)
-
-	try:
-		yield
-	except TimeoutError:
-		pass
-	finally:
-		signal.signal(signal.SIGALRM, signal.SIG_IGN)
-
-
-def raise_timeout(signum, frame):
-	raise TimeoutError
 
 fd = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
 loop = asyncio.get_event_loop()
