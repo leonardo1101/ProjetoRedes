@@ -13,6 +13,9 @@ import os
 import sys
 import queue
 import struct
+import time
+import signal
+
 
 FLAGS_FIN = 1
 FLAGS_SYN = 2
@@ -27,9 +30,8 @@ port_cliente = 7500
 dados = 32 * b"Who are you ?"
 tamanho = 16
 
-contador = 0
 
-comecaEnviarPacote = False
+
 
 connectionNumber = (end,port_cliente,end,port_servidor)
 
@@ -48,6 +50,11 @@ class Conexao:
 conexao = Conexao(connectionNumber)
 
 
+def tempo_atual():
+   now = time.localtime(time.time())
+   tempo = now[4]* 60 + now[5]
+   return tempo
+
 def addr2str(addr):
     return '%d.%d.%d.%d' % tuple(int(x) for x in addr)
 
@@ -62,8 +69,7 @@ def set_checksum(segmento):
         while checksum > 0xffff:
             checksum = (checksum & 0xffff) + 1
 
-    #Como é um servidor basta apenas negar
-    checksum = (~checksum) & 0xffff
+    checksum = (checksum) & 0xffff
     
     return checksum
 
@@ -122,36 +128,39 @@ def encerrar_conexao(fd):
     recebido = ""
     while(recebido != "FIN recebido" ):
         recebido = raw_recv(fd)
-    #Esperar30 segundos
     print("Conexao Encerrada")
+    
+class TimeoutPacote(Exception):
+    pass
+
+def timeoutACK(signum, frame):
+    print("Timeout - pacote não identificado")
+    raise TimeoutPacote
 
 def enviar_pacote(data):
-    
     send_base = conexao.seq_no
-    fd.settimeout(0.1)
     pacotes_enviados = 0
-    contador = 0
-    while(data != b""):
-        contador = contador + 1
-                        
-        if(contador > 50):
-            contador = 0
-            conexao.seq_no = send_base
-            pacotes_enviados = 0
+    
+    estimatedRTT = 5
+    devRTT  = 0
+    timeoutInterval = 5
+    
+    signal.signal(signal.SIGALRM, timeoutACK)
+    signal.alarm(timeoutInterval)
 
-        
-        if(pacotes_enviados < 5):
+    while(True):
+        while(pacotes_enviados < 5 and conexao.seq_no+tamanho<len(data)):
             payload = data[conexao.seq_no:conexao.seq_no+tamanho]
-            segment = struct.pack('!HHIIHHHH', port_cliente , port_servidor, conexao.seq_no,
-                                conexao.ack_no, (5<<12)|FLAGS_ACK,
-                                1024, 0, 0) + payload
-            
+            segment = struct.pack('!HHIIHHHH', port_cliente , port_servidor, conexao.seq_no,conexao.ack_no, (5<<12)|FLAGS_ACK,1024, 0, 0) + payload
+                
             print('%s:%d -> %s:%d  (seq=%d) Segmento ACK enviado' % (end,port_cliente,end,port_servidor,conexao.seq_no))
             conexao.seq_no = (conexao.seq_no + len(payload)) & 0xffffffff
             segment = create_checksum(segment, end, end)
             fd.sendto(segment,(end,port_cliente))
             pacotes_enviados = pacotes_enviados + 1
-            
+
+        if(len(data) < conexao.seq_no+tamanho):
+            break
         try:
             pacote = fd.recv(12000)
             end_remt, end_dest, segmento = extract_addrs_segment(pacote)
@@ -165,14 +174,19 @@ def enviar_pacote(data):
                         if(ack_n == send_base + tamanho):
                             send_base =ack_n
                             pacotes_enviados= pacotes_enviados - 1
+                            signal.alarm(timeoutInterval)
                         else:
-                            conexao.seq_no = send_base  
-                    
-                    
-        except:
-            pass
+                            conexao.seq_no = send_base 
+            
+        except TimeoutPacote:
+            conexao.seq_no = send_base
+            pacotes_enviados = 0
+            timeoutInterval = estimatedRTT + 4 * devRTT
+            signal.alarm(timeoutInterval)
 
-    
+        except Exception as e:
+            print(e)
+        pass
         
         
         

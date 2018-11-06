@@ -6,7 +6,6 @@
 # sudo iptables -I OUTPUT -p tcp --tcp-flags RST RST -j DROP
 # 
 
-
 import asyncio
 import socket
 import struct
@@ -25,7 +24,6 @@ end = '127.0.0.1'
 port_servidor = 7080
 port_cliente = 7500
 InicialSeqNumber = 0
-timer = None
 tamanho = 16
 
 
@@ -35,6 +33,9 @@ class Conexao:
         self.seq_no = seq_no
         self.ack_no = ack_no
         self.data = b""
+        self.rcv_buffer = 1024
+        self.lastByteRcvd = 0
+        self.lastByteRead = 0
         
 conexoes = {}
 
@@ -55,7 +56,6 @@ def set_checksum(segmento):
         while checksum > 0xffff:
             checksum = (checksum & 0xffff) + 1
 
-    #Como é um servidor basta apenas negar
     checksum = (~checksum) & 0xffff
     
     return checksum
@@ -86,10 +86,11 @@ def raw_recv(fd):
     packet = fd.recv(12000)
     end_remt, end_dest, segmento = extract_addrs_segment(packet)
     port_remt, port_dest, seq_n, ack_n, flags, window_size, checksum, urg_ptr = struct.unpack('!HHIIHHHH', segmento[:20])
-    flags = flags & 511
     
     if port_remt == port_cliente :
 
+        flags = flags & 511
+        seg_check = set_checksum(segmento)
         if port_dest != port_servidor:
             return
         
@@ -107,14 +108,13 @@ def raw_recv(fd):
         elif connectionNumber in conexoes:
             conexao = conexoes[connectionNumber]
             if flags == FLAGS_ACK : 
-                
-                print('%s:%d -> %s:%d  (seq=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
-                conexao.data += segmento[4*(flags>>12):]
-                if(50<seq_n and seq_n < 80):
+                if(seg_check+checksum & 0xffff ):
+                    print('%s:%d -> %s:%d  (seq=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
+                    conexao.data += segmento[4*(flags>>12):]
                     fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, conexao.seq_no, seq_n + tamanho, FLAGS_ACK),end_remt, end_dest),(end_remt,port_remt))
+                    
+                    conexao.seq_no += 1
                 
-                conexao.seq_no += 1
-            
             elif flags == FLAGS_FIN:
                 print('%s:%d -> %s:%d  (seq=%d) Segmento FIN - conexão encerrada' % (end_remt,port_remt,end_dest,port_dest,seq_n))
                 fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_FIN),end_remt, end_dest),(end_remt,port_remt))
