@@ -70,8 +70,6 @@ def create_checksum(segmento, end_remt, end_dest):
     seg[16:18] = struct.pack('!H', set_checksum(addr + segmento))
     return bytes(seg)
 
-def timer_test(src_addr, src_port):
-    print('5 segundos desde que aceitamos a conexão de %s:%d' % (src_addr, src_port))
 
 def extract_addrs_segment(packet):
     version = packet[0] >> 4
@@ -98,29 +96,31 @@ def raw_recv(fd):
         
         if flags == FLAGS_SYN :
             
-            print('%s:%d -> %s:%d  (seq=%d) Segmento SYN - conexão estabelecida' % (end_remt,port_remt,end_dest,port_dest,seq_n))
             
             conexao = Conexao(id_conexao=connectionNumber,seq_no = 0 , ack_no=seq_n + 1)
             conexoes[connectionNumber] = conexao
+            
+            
+            print('%s:%d -> %s:%d  (seq=%d) Segmento SYN - conexão estabelecida' % (end_remt,port_remt,end_dest,port_dest,conexao.seq_no))
             
             fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, conexao.seq_no, conexao.ack_no, FLAGS_SYN),end_remt, end_dest),(end_remt,port_remt))
             
         elif connectionNumber in conexoes:
             conexao = conexoes[connectionNumber]
             if flags == FLAGS_ACK : 
-                if(seg_check+checksum & 0xffff ):
+                if(seg_check+checksum & 0xffff and seq_n == conexao.ack_no ):
                     print('%s:%d -> %s:%d  (seq=%d) Segmento ACK recebido' % (end_remt,port_remt,end_dest,port_dest,seq_n))
                     conexao.data += segmento[4*(flags>>12):]
                     fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, conexao.seq_no, seq_n + tamanho, FLAGS_ACK),end_remt, end_dest),(end_remt,port_remt))
-                    
+                    conexao.ack_no+=tamanho
                     conexao.seq_no += 1
                 
             elif flags == FLAGS_FIN:
+                del conexoes[connectionNumber]
                 print('%s:%d -> %s:%d  (seq=%d) Segmento FIN - conexão encerrada' % (end_remt,port_remt,end_dest,port_dest,seq_n))
                 fd.sendto(create_checksum(create_synack(port_servidor, port_cliente, 0, seq_n + 1,FLAGS_FIN),end_remt, end_dest),(end_remt,port_remt))
         
         else:
-            print("FIM")
             return
 
 

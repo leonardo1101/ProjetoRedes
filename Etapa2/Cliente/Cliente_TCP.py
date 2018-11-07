@@ -147,9 +147,24 @@ def enviar_pacote(data):
     
     signal.signal(signal.SIGALRM, timeoutACK)
     signal.alarm(timeoutInterval)
+    
+    tempoCalculo  = tempo_atual()
+    tempoEnvio = 0
+    pacoteTeste = 0
 
+    MSS = 1                                 #MSS sendo um tamanho de data 16
+    cwnd = MSS
+    ssthresh = 2
+    dupACKcount = 0
+    
+    
     while(True):
-        while(pacotes_enviados < 5 and conexao.seq_no+tamanho<len(data)):
+        while(pacotes_enviados < cwnd and conexao.seq_no+tamanho<len(data)):
+            if(tempo_atual() - tempoCalculo > 1800):
+                pacoteTeste = conexao.seq_no
+                tempoEnvio = tempo_atual()
+                tempoCalculo = tempo_atual()
+                
             payload = data[conexao.seq_no:conexao.seq_no+tamanho]
             segment = struct.pack('!HHIIHHHH', port_cliente , port_servidor, conexao.seq_no,conexao.ack_no, (5<<12)|FLAGS_ACK,1024, 0, 0) + payload
                 
@@ -170,20 +185,41 @@ def enviar_pacote(data):
                 if flags == FLAGS_ACK :
                     print('%s:%d -> %s:%d  (ack=%d) Segmento ACK chegou' % (end,port_cliente,end,port_servidor,ack_n-1))
                     if(ack_n > send_base):
-                        print('Ack %d e send_base %d' %(ack_n,send_base))
-                        if(ack_n == send_base + tamanho):
-                            send_base =ack_n
-                            pacotes_enviados= pacotes_enviados - 1
-                            signal.alarm(timeoutInterval)
+                        if(dupACKcount >=3):
+                            cwnd = ssthresh
+                        elif(cwnd >=ssthresh):
+                            pacotesChegados = (ack_n - send_base) // tamanho
+                            cwnd +=  pacotesChegados/cwnd
                         else:
-                            conexao.seq_no = send_base 
+                            cwnd += (ack_n - send_base) // tamanho
+                            
+                        send_base =ack_n
+                        dupACKcount = 0
+                        pacotes_enviados= pacotes_enviados - 1
+                        signal.alarm(timeoutInterval)
+                    
+                    elif(send_base >ack_n ):
+                        dupACKcount+=1
+                        if(dupACKcount == 3):
+                            ssthresh = cwnd / 2
+                            cwnd=ssthresh + 3
+                        elif(dupACKcount > 3):
+                            cwnd+=1
+                            
+                    if(pacoteTeste+tamanho == ack_n ):
+                        sampleRTT = tempo_atual() - tempoEnvio
+                        estimatedRTT = 0.875 * estimatedRTT +  0.125 * sampleRTT
+                        devRTT = 0.75 * devRTT + 0.25 * abs(sampleRTT - estimatedRTT)
+                    
             
         except TimeoutPacote:
             conexao.seq_no = send_base
             pacotes_enviados = 0
             timeoutInterval = estimatedRTT + 4 * devRTT
             signal.alarm(timeoutInterval)
-
+            ssthresh = cwnd / 2
+            cwnd = 1
+            dupACKcount = 0
         except Exception as e:
             print(e)
         pass
